@@ -17,6 +17,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.pdflibrary.data.model.PREMIUM_MIN_BYTES
 import com.example.pdflibrary.ui.common.Formatters
 import com.example.pdflibrary.ui.components.AppCard
 import com.example.pdflibrary.ui.components.BookCover
@@ -156,7 +157,11 @@ private fun LibraryRow(
 
     AppCard(onClick = if (missing) onDetails else onOpen, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            BookCover(e.bookId, title, Modifier.size(width = 46.dp, height = 64.dp), cornerRadius = 6.dp, showTitle = false)
+            BookCover(
+                e.bookId, title, Modifier.size(width = 46.dp, height = 64.dp),
+                coverUrl = e.coverUrl, cornerRadius = 6.dp, showTitle = false,
+                premium = (e.fileSize ?: 0L) > PREMIUM_MIN_BYTES,
+            )
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)

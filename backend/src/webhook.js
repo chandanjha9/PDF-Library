@@ -89,6 +89,25 @@ async function resolveFileUrl(file_id) {
 }
 
 /**
+ * Stream a small Telegram file (e.g. a cover thumbnail) as an image.
+ */
+async function streamImage(file_id, res) {
+  const { url } = await resolveFileUrl(file_id);
+  const upstream = await fetch(url);
+  if (!upstream.ok) throw new Error(`Telegram thumbnail download failed: HTTP ${upstream.status}`);
+  res.setHeader('Content-Type', upstream.headers.get('content-type') || 'image/jpeg');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  const len = upstream.headers.get('content-length');
+  if (len) res.setHeader('Content-Length', len);
+  await new Promise((resolve, reject) => {
+    const body = upstream.body;
+    res.on('close', () => { body.destroy(); resolve(); });
+    body.on('error', reject);
+    body.pipe(res).on('finish', resolve);
+  });
+}
+
+/**
  * Stream a Telegram file to an Express response without exposing the token.
  * Handles upstream errors and client disconnects.
  */
@@ -112,6 +131,41 @@ async function streamFile(file_id, res, filename = 'book.pdf') {
     body.on('error', reject);
     body.pipe(res).on('finish', resolve);
   });
+}
+
+// ── Admin notifications ──────────────────────────────────────────────────────
+
+/**
+ * Sends a premium order to the admin's Telegram chat, followed by the book
+ * itself (sendDocument by file_id has no 20 MB limit), so the admin can
+ * forward it to the customer. ADMIN_CHAT_ID = your numeric Telegram user id
+ * (you must have pressed Start in a chat with the bot once).
+ */
+async function notifyAdminOrder(order, book) {
+  const chatId = process.env.ADMIN_CHAT_ID;
+  if (!chatId || !BOT_TOKEN) {
+    console.warn('[Order] ADMIN_CHAT_ID not set — order saved but no Telegram notification sent.');
+    return;
+  }
+  const text = [
+    '🛒 New Premium order',
+    `📖 ${book.title}  (#${book.id}, ${(book.file_size / 1048576).toFixed(1)} MB)`,
+    `💳 ${order.method === 'upi' ? 'UPI ₹10' : 'Watched ad'}${order.ref ? `\n🔖 Ref: ${order.ref}` : ''}`,
+    `📱 Send to: ${order.contact || '(no contact given)'}`,
+    `🆔 Order #${order.$loki}`,
+  ].join('\n');
+  try {
+    await fetch(`${TELEGRAM_API}/sendMessage`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
+    });
+    await fetch(`${TELEGRAM_API}/sendDocument`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, document: book.file_id, caption: `Order #${order.$loki} → ${order.contact || ''}`.slice(0, 1000) }),
+    });
+  } catch (err) {
+    console.error('[Order] Telegram notification failed:', err.message);
+  }
 }
 
 // ── Update Parser ────────────────────────────────────────────────────────────
@@ -153,11 +207,15 @@ function handleUpdate(update) {
     date_added: post.date || Math.floor(Date.now() / 1000),
     cover_url:  null,
     author:     null,
+    // First-page preview Telegram generates for most PDFs → used as the cover.
+    thumb_file_id: (doc.thumbnail || doc.thumb || {}).file_id || null,
   };
 
   const result = insertBook(book);
   if (result.inserted) {
     console.log(`[Webhook] New book indexed: "${title}" (id=${result.id})`);
+  } else if (result.updated) {
+    console.log(`[Webhook] Cover added: "${title}" (id=${result.id})`);
   } else {
     console.log(`[Webhook] Duplicate skipped: "${title}"`);
   }
@@ -188,4 +246,4 @@ function webhookHandler(req, res) {
   res.status(200).json({ ok: true });
 }
 
-module.exports = { registerWebhook, resolveFileUrl, streamFile, webhookHandler };
+module.exports = { registerWebhook, resolveFileUrl, streamFile, streamImage, notifyAdminOrder, webhookHandler };

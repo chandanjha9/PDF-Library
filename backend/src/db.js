@@ -25,6 +25,10 @@ const DB_PATH = process.env.LIBRARY_DB_PATH || path.join(DATA_DIR, 'library.json
 
 let booksCollection;
 let sessionsCollection;
+let unlocksCollection;
+
+// Files above this size are "Premium" (unlock with ₹10 UPI or a rewarded ad).
+const PREMIUM_MIN_BYTES = parseInt(process.env.PREMIUM_MIN_BYTES || String(20 * 1024 * 1024), 10);
 
 // Resolves once LokiJS has loaded library.json. Requests arriving before that
 // used to fail with "Database not yet initialised." (HTTP 500).
@@ -63,6 +67,11 @@ function initialise() {
     });
   }
 
+  unlocksCollection = loki.getCollection('unlocks');
+  if (!unlocksCollection) {
+    unlocksCollection = loki.addCollection('unlocks', { indices: ['device_id', 'book_id'] });
+  }
+
   console.log(`[DB] Initialised. Real Books: ${booksCollection.count()}, Active Sessions: ${sessionsCollection.count()}`);
 
   // Start periodic 30-second TTL cleanup (unref: don't keep the process alive on its own)
@@ -87,17 +96,24 @@ function insertBook(book) {
 
   const existing = col.findOne({ file_id: book.file_id });
   if (existing) {
+    // Backfill the cover thumbnail for books indexed before covers existed.
+    if (book.thumb_file_id && !existing.thumb_file_id) {
+      existing.thumb_file_id = book.thumb_file_id;
+      col.update(existing);
+      return { inserted: false, updated: true, id: existing.$loki };
+    }
     return { inserted: false, id: existing.$loki };
   }
 
   const doc = col.insert({
-    title:       book.title       || 'Untitled',
-    description: book.description || null,
-    file_id:     book.file_id,
-    file_size:   book.file_size   || 0,
-    date_added:  book.date_added  || Math.floor(Date.now() / 1000),
-    cover_url:   book.cover_url   || null,
-    author:      book.author      || null,
+    title:         book.title       || 'Untitled',
+    description:   book.description || null,
+    file_id:       book.file_id,
+    file_size:     book.file_size   || 0,
+    date_added:    book.date_added  || Math.floor(Date.now() / 1000),
+    cover_url:     book.cover_url   || null,
+    author:        book.author      || null,
+    thumb_file_id: book.thumb_file_id || null,
   });
 
   return { inserted: true, id: doc.$loki };
@@ -213,6 +229,7 @@ function getActiveSession(sessionId) {
   }
   return {
     session_id:   doc.session_id,
+    device_id:    doc.device_id,
     book:         doc.book,
     expires_at:   doc.expires_at,
     ttl_seconds:  Math.max(0, Math.floor((doc.expires_at - now) / 1000)),
@@ -253,13 +270,76 @@ function cleanupExpiredSessions() {
   }
 }
 
+// ── Premium unlocks ──────────────────────────────────────────────────────────
+
+function isPremium(book) {
+  return !!book && (book.file_size || 0) > PREMIUM_MIN_BYTES;
+}
+
+function isUnlocked(deviceId, bookId) {
+  if (!unlocksCollection) return false;
+  return !!unlocksCollection.findOne({ device_id: deviceId, book_id: bookId });
+}
+
+/**
+ * Records an unlock / premium order (idempotent per device+book).
+ * method: 'upi' | 'ad'. contact: WhatsApp number / Telegram username for manual delivery.
+ * Returns { doc, created } — created=false when it already existed.
+ */
+function addUnlock(deviceId, bookId, method, ref, contact = null, bookTitle = null) {
+  if (!unlocksCollection) throw new Error('Database not yet initialised.');
+  const existing = unlocksCollection.findOne({ device_id: deviceId, book_id: bookId });
+  if (existing) {
+    if (contact && existing.contact !== contact) { existing.contact = contact; unlocksCollection.update(existing); }
+    return { doc: existing, created: false };
+  }
+  const doc = unlocksCollection.insert({
+    device_id:  deviceId,
+    book_id:    bookId,
+    book_title: bookTitle,
+    method,
+    ref:        ref ? String(ref).slice(0, 300) : null,
+    contact:    contact ? String(contact).slice(0, 100) : null,
+    status:     'pending',       // pending → sent (manual delivery)
+    created_at: Date.now(),
+  });
+  return { doc, created: true };
+}
+
+function markUnlockSent(id) {
+  if (!unlocksCollection) return false;
+  const doc = unlocksCollection.get(id);
+  if (!doc) return false;
+  doc.status = 'sent';
+  doc.sent_at = Date.now();
+  unlocksCollection.update(doc);
+  return true;
+}
+
+function getUnlock(deviceId, bookId) {
+  if (!unlocksCollection) return null;
+  return unlocksCollection.findOne({ device_id: deviceId, book_id: bookId }) || null;
+}
+
+function listUnlocks(limit = 200) {
+  if (!unlocksCollection) return [];
+  return unlocksCollection.chain().simplesort('created_at', true).limit(limit).data()
+    .map(({ $loki, meta, ...rest }) => ({ id: $loki, ...rest }));
+}
+
 // ── Internal helpers ─────────────────────────────────────────────────────────
 
 function sanitise(doc) {
   if (!doc) return null;
   // eslint-disable-next-line no-unused-vars
-  const { $loki, meta, ...rest } = doc;
-  return { id: $loki, ...rest };
+  const { $loki, meta, thumb_file_id, ...rest } = doc;
+  const out = { id: $loki, ...rest };
+  // Books (not sessions) get a cover URL when Telegram provided a thumbnail.
+  if ('file_id' in rest) {
+    if (thumb_file_id) out.cover_url = `/books/${$loki}/cover`;
+    out.premium = (rest.file_size || 0) > PREMIUM_MIN_BYTES;
+  }
+  return out;
 }
 
 module.exports = {
@@ -276,4 +356,12 @@ module.exports = {
   getActiveSessionsForDevice,
   cleanupExpiredSessions,
   sanitise,
+  isPremium,
+  isUnlocked,
+  addUnlock,
+  listUnlocks,
+  markUnlockSent,
+  getUnlock,
+  getThumbFileId: id => { const d = getBooksCol().get(id); return d ? d.thumb_file_id || null : null; },
+  PREMIUM_MIN_BYTES,
 };

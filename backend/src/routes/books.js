@@ -28,8 +28,13 @@ const {
   createSession,
   getActiveSession,
   getActiveSessionsForDevice,
+  isPremium,
+  isUnlocked,
+  addUnlock,
+  getUnlock,
+  getThumbFileId,
 } = require('../db');
-const { streamFile } = require('../webhook');
+const { streamFile, streamImage, notifyAdminOrder } = require('../webhook');
 const { syncChannelThrottled } = require('../sync');
 
 function deviceIdFrom(req) {
@@ -53,9 +58,25 @@ function downloadPayload(session) {
 
 const router = express.Router();
 
-// Minimum fuzzy score for granting a pass. Below this the user gets suggestions
-// instead of a pass to a book they didn't ask for.
-const GRANT_MIN_SCORE = parseFloat(process.env.GRANT_MIN_SCORE || '0.5');
+// Premium (>20 MB) files can only be delivered when a local Telegram Bot API
+// server is configured. Until then premium unlocks are refused so nobody pays
+// for a download that cannot work.
+const LARGE_FILES_ENABLED = process.env.LARGE_FILES_ENABLED
+  ? process.env.LARGE_FILES_ENABLED === 'true'   // explicit setting wins
+  : (!!process.env.TELEGRAM_API_BASE && !/api\.telegram\.org/.test(process.env.TELEGRAM_API_BASE));
+
+/** Returns an error payload if this device may not download this book, else null. */
+function premiumBlock(book, deviceId) {
+  if (!isPremium(book)) return null;
+  if (!isUnlocked(deviceId, book.id)) {
+    return { status: 402, body: { error: 'premium_required', message: 'This is a Premium book. Unlock it for ₹10 or by watching an ad.' } };
+  }
+  if (!LARGE_FILES_ENABLED) {
+    // Paid, but the server can't stream 20 MB+ files: delivered manually by the admin.
+    return { status: 413, body: { error: 'manual_delivery', message: 'Your Premium book will be sent to you on WhatsApp/Telegram.' } };
+  }
+  return null;
+}
 
 // ── POST /books/request (User Requests Book) ─────────────────────────────────
 
@@ -185,6 +206,8 @@ router.get('/session/:id/file', async (req, res) => {
       error:   'This pass has expired. Please request the book again.',
     });
   }
+  const block = premiumBlock(session.book, session.device_id);
+  if (block) return res.status(block.status).json(block.body);
 
   try {
     await streamFile(session.book.file_id, res, session.book.title || 'book');
@@ -254,12 +277,81 @@ router.get('/:id/download', (req, res) => {
   if (!book) {
     return res.status(404).json({ error: 'Book not found.' });
   }
+  const deviceId = deviceIdFrom(req);
+  const block = premiumBlock(book, deviceId);
+  if (block) return res.status(block.status).json(block.body);
   try {
-    const session = createSession(book, deviceIdFrom(req));
+    const session = createSession(book, deviceId);
     return res.json(downloadPayload(session));
   } catch (err) {
     console.error('[/books/:id/download]', err.message);
     return res.status(500).json({ error: 'Could not start download.' });
+  }
+});
+
+// ── POST /books/:id/unlock (Record a Premium unlock) ─────────────────────────
+//
+// body: { device_id, method: 'upi' | 'ad', ref }
+// NOTE: honour-system — the client reports the UPI app's result / ad reward.
+// `ref` (UPI txnId / txnRef) is stored so payments can be reconciled against
+// the bank statement via GET /admin/unlocks.
+
+router.post('/:id/unlock', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const book = isNaN(id) ? null : getBookById(id);
+  if (!book) return res.status(404).json({ error: 'Book not found.' });
+  if (!isPremium(book)) return res.json({ premium: false, unlocked: true, available: true, delivery: 'download' });
+
+  const method = req.body?.method === 'ad' ? 'ad' : req.body?.method === 'upi' ? 'upi' : null;
+  if (!method) return res.status(400).json({ error: 'method must be "upi" or "ad".' });
+
+  const contact = String(req.body?.contact || '').trim().slice(0, 100) || null;
+  const manual = !LARGE_FILES_ENABLED;
+  if (manual && !contact) {
+    return res.status(400).json({ error: 'contact_required', message: 'Enter your WhatsApp number or Telegram username so we can send the book.' });
+  }
+
+  const deviceId = deviceIdFrom(req);
+  const { doc, created } = addUnlock(deviceId, id, method, req.body?.ref, contact, book.title);
+  console.log(`[Unlock] #${doc.$loki} book=${id} device=${deviceId.slice(0, 8)}… via ${method} contact=${contact || '-'}${req.body?.restore ? ' (restored)' : ''}`);
+
+  // Notify the admin for new orders (not when the app re-registers an old one after a server restart).
+  if (created && manual && !req.body?.restore) {
+    notifyAdminOrder(doc, book); // fire-and-forget
+  }
+  return res.json({ premium: true, unlocked: true, available: true, delivery: manual ? 'manual' : 'download', status: doc.status });
+});
+
+// ── GET /books/:id/unlock?device_id= (Premium status for this device) ────────
+
+router.get('/:id/unlock', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const book = isNaN(id) ? null : getBookById(id);
+  if (!book) return res.status(404).json({ error: 'Book not found.' });
+  const premium = isPremium(book);
+  const order = premium ? getUnlock(deviceIdFrom(req), id) : null;
+  return res.json({
+    premium,
+    unlocked:  !premium || !!order,
+    available: true,
+    delivery:  LARGE_FILES_ENABLED ? 'download' : 'manual',
+    status:    order ? order.status : null,
+    contact:   order ? order.contact : null,
+  });
+});
+
+// ── GET /books/:id/cover (Cover image from Telegram's PDF thumbnail) ─────────
+
+router.get('/:id/cover', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const thumb = isNaN(id) ? null : getThumbFileId(id);
+  if (!thumb) return res.status(404).json({ error: 'No cover for this book.' });
+  try {
+    await streamImage(thumb, res);
+  } catch (err) {
+    console.error('[/books/:id/cover]', err.message);
+    if (!res.headersSent) return res.status(502).json({ error: 'Could not load cover.' });
+    res.destroy(err);
   }
 });
 
@@ -280,3 +372,4 @@ router.get('/:id', (req, res) => {
 });
 
 module.exports = router;
+module.exports.LARGE_FILES_ENABLED = LARGE_FILES_ENABLED;

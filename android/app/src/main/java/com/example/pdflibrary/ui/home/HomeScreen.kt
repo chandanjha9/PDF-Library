@@ -39,6 +39,7 @@ import com.example.pdflibrary.R
 import com.example.pdflibrary.data.model.Book
 import com.example.pdflibrary.data.model.LibraryEntry
 import com.example.pdflibrary.data.model.PassSession
+import com.example.pdflibrary.data.model.isPremium
 import com.example.pdflibrary.theme.Amber
 import com.example.pdflibrary.theme.LogoSky
 import com.example.pdflibrary.ui.common.Formatters
@@ -314,6 +315,7 @@ private fun CarouselBook(book: Book, onClick: () -> Unit) {
             bookId = book.id,
             title = book.title,
             coverUrl = book.coverUrl,
+            premium = book.isPremium,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(164.dp),
@@ -419,7 +421,7 @@ private fun ContinueReadingRow(entry: LibraryEntry, onClick: () -> Unit, modifie
     val title = entry.title ?: "Untitled book"
     AppCard(onClick = onClick, modifier = modifier.fillMaxWidth()) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            BookCover(entry.bookId, title, Modifier.size(width = 48.dp, height = 66.dp), cornerRadius = 6.dp, showTitle = false)
+            BookCover(entry.bookId, title, Modifier.size(width = 48.dp, height = 66.dp), coverUrl = entry.coverUrl, cornerRadius = 6.dp, showTitle = false)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -443,7 +445,7 @@ private fun ContinueReadingRow(entry: LibraryEntry, onClick: () -> Unit, modifie
 private fun BookRow(book: Book, onClick: () -> Unit, modifier: Modifier = Modifier) {
     AppCard(onClick = onClick, modifier = modifier.fillMaxWidth()) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            BookCover(book.id, book.title, Modifier.size(width = 48.dp, height = 66.dp), coverUrl = book.coverUrl, cornerRadius = 6.dp, showTitle = false)
+            BookCover(book.id, book.title, Modifier.size(width = 48.dp, height = 66.dp), coverUrl = book.coverUrl, cornerRadius = 6.dp, showTitle = false, premium = book.isPremium)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(book.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)

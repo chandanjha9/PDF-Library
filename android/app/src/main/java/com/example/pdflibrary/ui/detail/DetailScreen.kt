@@ -1,5 +1,10 @@
 package com.example.pdflibrary.ui.detail
 
+import android.content.Intent
+import androidx.activity.compose.LocalActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -13,7 +18,11 @@ import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.CurrencyRupee
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.SmartDisplay
+import androidx.compose.material.icons.outlined.WorkspacePremium
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,9 +33,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.pdflibrary.data.BookRepository
 import com.example.pdflibrary.data.model.Book
+import com.example.pdflibrary.data.model.isPremium
 import com.example.pdflibrary.theme.Amber
+import com.example.pdflibrary.theme.OnAmber
+import com.example.pdflibrary.theme.Success
+import com.example.pdflibrary.ui.components.appTextFieldColors
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import com.example.pdflibrary.premium.RewardedAds
+import com.example.pdflibrary.premium.UpiPayment
+import androidx.compose.ui.platform.LocalContext
 import com.example.pdflibrary.theme.coverGradientFor
 import com.example.pdflibrary.ui.common.Formatters
 import com.example.pdflibrary.ui.components.BookCover
@@ -48,9 +66,63 @@ fun DetailScreen(
         factory = DetailViewModel.factory(bookId),
     )
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val activity = LocalActivity.current
+    val snackbar = remember { SnackbarHostState() }
+
+    // UPI app returns here; its reply is in the "response" extra (may be missing).
+    val upiLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        viewModel.onUpiResult(result.data?.getStringExtra("response"))
+    }
+
+    val payWithUpi: () -> Unit = payWithUpi@{
+        if (!viewModel.contactValidOrWarn()) return@payWithUpi
+        val txnRef = UpiPayment.newTxnRef(bookId)
+        val intent = UpiPayment.intent(bookId, txnRef)
+        if (UpiPayment.hasUpiApp(context, intent)) {
+            viewModel.onUpiStarted(txnRef)
+            upiLauncher.launch(Intent.createChooser(intent, "Pay ₹10 with"))
+        } else {
+            viewModel.showMessage("No UPI app found. Install Google Pay, PhonePe, Paytm or BHIM.")
+        }
+    }
+
+    val watchAd: () -> Unit = watchAd@{
+        if (!viewModel.contactValidOrWarn()) return@watchAd
+        if (activity == null) {
+            viewModel.showMessage("Ads aren't available right now.")
+        } else {
+            viewModel.showMessage("Loading ad…")
+            RewardedAds.show(
+                activity = activity,
+                onRewarded = viewModel::onAdRewarded,
+                onDismissedWithoutReward = { viewModel.showMessage("Watch the full ad to unlock this book.") },
+                onError = viewModel::showMessage,
+            )
+        }
+    }
+
+    LaunchedEffect(state.message) {
+        state.message?.let {
+            snackbar.showSnackbar(it)
+            viewModel.messageShown()
+        }
+    }
+
+    if (state.askPaymentConfirmation) {
+        AlertDialog(
+            onDismissRequest = { viewModel.confirmPayment(false) },
+            title = { Text("Did the payment go through?") },
+            text = { Text("Your UPI app didn't report the result. If ₹10 was debited, tap \"Yes, I paid\" to unlock this book.") },
+            confirmButton = { TextButton(onClick = { viewModel.confirmPayment(true) }) { Text("Yes, I paid") } },
+            dismissButton = { TextButton(onClick = { viewModel.confirmPayment(false) }) { Text("No") } },
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        )
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = {},
@@ -99,6 +171,10 @@ fun DetailScreen(
                 onDownload = viewModel::download,
                 onCancel = viewModel::cancelDownload,
                 onOpenPdf = onOpenPdf,
+                onPayUpi = payWithUpi,
+                onWatchAd = watchAd,
+                onRetryPremium = viewModel::checkPremium,
+                onContactChange = viewModel::onContactChange,
             )
         }
     }
@@ -112,6 +188,10 @@ private fun DetailContent(
     onDownload: () -> Unit,
     onCancel: () -> Unit,
     onOpenPdf: (String) -> Unit,
+    onPayUpi: () -> Unit,
+    onWatchAd: () -> Unit,
+    onRetryPremium: () -> Unit,
+    onContactChange: (String) -> Unit,
 ) {
     val (tint, _) = coverGradientFor(book.id)
     Column(
@@ -131,6 +211,7 @@ private fun DetailContent(
                 bookId = book.id,
                 title = book.title,
                 coverUrl = book.coverUrl,
+                premium = book.isPremium,
                 cornerRadius = 12.dp,
                 modifier = Modifier.size(width = 150.dp, height = 210.dp),
             )
@@ -166,17 +247,20 @@ private fun DetailContent(
             }
 
             Spacer(Modifier.height(24.dp))
-            if (book.fileSize > BookRepository.MAX_DOWNLOAD_BYTES && state.downloadState !is DownloadState.Done) {
-                // Known in advance: don't offer a button that is guaranteed to fail.
-                Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.tertiaryContainer, modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(10.dp))
-                        Text(BookRepository.TOO_LARGE_MESSAGE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
-                    }
-                }
-            } else {
+            val premium = state.premium
+            if (state.downloadState is DownloadState.Done || premium == PremiumState.NotPremium || premium == PremiumState.Unlocked) {
                 DownloadSection(state.downloadState, onDownload, onCancel, onOpenPdf)
+            } else {
+                PremiumSection(
+                    state = premium,
+                    fileSize = book.fileSize,
+                    contact = state.contact,
+                    onContactChange = onContactChange,
+                    isUnlocking = state.isUnlocking,
+                    onPayUpi = onPayUpi,
+                    onWatchAd = onWatchAd,
+                    onRetry = onRetryPremium,
+                )
             }
 
             if (!book.description.isNullOrBlank()) {
@@ -246,6 +330,117 @@ private fun DownloadSection(
                 Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Try again")
+            }
+        }
+    }
+}
+
+@Composable
+private fun PremiumSection(
+    state: PremiumState,
+    fileSize: Long,
+    contact: String,
+    onContactChange: (String) -> Unit,
+    isUnlocking: Boolean,
+    onPayUpi: () -> Unit,
+    onWatchAd: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.WorkspacePremium, contentDescription = null, tint = Amber, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Premium book", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                Spacer(Modifier.weight(1f))
+                Text(Formatters.fileSize(fileSize), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
+            }
+            Spacer(Modifier.height(8.dp))
+            when (state) {
+                PremiumState.Checking -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Amber)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Checking access…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                }
+                is PremiumState.Ordered -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = Success, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (state.sent) "Sent! Check your WhatsApp/Telegram." else "Order received",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        if (state.sent) "The book was sent to ${state.contact ?: "your contact"}."
+                        else "The book will be sent to ${state.contact ?: "you"} on WhatsApp/Telegram, usually within a few hours.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    TextButton(onClick = onRetry) { Text("Refresh status", color = Amber) }
+                }
+                is PremiumState.Error -> {
+                    Text(state.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = onRetry) { Text("Try again", color = Amber) }
+                }
+                else -> {
+                    val manual = state is PremiumState.Locked && state.manual
+                    Text(
+                        if (manual) "Pay ₹10 or watch a short ad. We'll send the full PDF to your WhatsApp or Telegram."
+                        else "Unlock once to download and read offline.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    )
+                    if (manual) {
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = contact,
+                            onValueChange = onContactChange,
+                            label = { Text("WhatsApp number or Telegram @username") },
+                            placeholder = { Text("+91 98765 43210  or  @yourname") },
+                            singleLine = true,
+                            shape = MaterialTheme.shapes.medium,
+                            colors = appTextFieldColors(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Done),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Button(
+                        onClick = onPayUpi,
+                        enabled = !isUnlocking,
+                        colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = OnAmber),
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                    ) {
+                        if (isUnlocking) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = OnAmber)
+                        } else {
+                            Icon(Icons.Outlined.CurrencyRupee, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Pay ₹10 with UPI")
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = onWatchAd,
+                        enabled = !isUnlocking,
+                        border = BorderStroke(1.dp, Amber),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Amber),
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                    ) {
+                        Icon(Icons.Outlined.SmartDisplay, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Watch an ad — free")
+                    }
+                }
             }
         }
     }

@@ -46,4 +46,5 @@ data class LibraryEntry(
     val fileSize: Long?,
     val localPath: String?,
     val lastPage: Int?,
+    val coverUrl: String?,
 )

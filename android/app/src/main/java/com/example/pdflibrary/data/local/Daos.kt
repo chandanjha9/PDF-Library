@@ -35,7 +35,7 @@ interface FavoritesDao {
         """
         SELECT f.bookId AS bookId, f.addedAt AS addedAt,
                b.title AS title, b.author AS author, b.fileSize AS fileSize,
-               d.localPath AS localPath, p.lastPage AS lastPage
+               d.localPath AS localPath, p.lastPage AS lastPage, b.coverUrl AS coverUrl
         FROM favorites f
         LEFT JOIN books_cache b      ON b.id = f.bookId
         LEFT JOIN downloads d        ON d.bookId = f.bookId
@@ -64,7 +64,7 @@ interface DownloadsDao {
         SELECT d.bookId AS bookId, d.downloadedAt AS addedAt,
                b.title AS title, b.author AS author,
                COALESCE(b.fileSize, d.fileSize) AS fileSize,
-               d.localPath AS localPath, p.lastPage AS lastPage
+               d.localPath AS localPath, p.lastPage AS lastPage, b.coverUrl AS coverUrl
         FROM downloads d
         LEFT JOIN books_cache b      ON b.id = d.bookId
         LEFT JOIN reading_progress p ON p.bookId = d.bookId
@@ -79,7 +79,7 @@ interface DownloadsDao {
         SELECT d.bookId AS bookId, p.updatedAt AS addedAt,
                b.title AS title, b.author AS author,
                COALESCE(b.fileSize, d.fileSize) AS fileSize,
-               d.localPath AS localPath, p.lastPage AS lastPage
+               d.localPath AS localPath, p.lastPage AS lastPage, b.coverUrl AS coverUrl
         FROM reading_progress p
         INNER JOIN downloads d  ON d.bookId = p.bookId
         LEFT JOIN books_cache b ON b.id = p.bookId

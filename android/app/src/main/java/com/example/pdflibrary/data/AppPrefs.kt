@@ -72,6 +72,30 @@ class AppPrefs(context: Context) {
         get() = prefs.getString(KEY_SERVER_URL, null)?.takeIf { it.isNotBlank() }
         set(v) = prefs.edit { if (v.isNullOrBlank()) remove(KEY_SERVER_URL) else putString(KEY_SERVER_URL, v) }
 
+    // ── Premium unlocks ─────────────────────────────────────────────────────
+    // Kept locally so a purchase survives server restarts (Render free has no
+    // persistent disk); the app re-registers it with the server when needed.
+    data class LocalUnlock(val method: String, val ref: String?, val contact: String?)
+
+    fun localUnlock(bookId: Int): LocalUnlock? {
+        val method = prefs.getString("unlock_${bookId}_method", null) ?: return null
+        return LocalUnlock(
+            method = method,
+            ref = prefs.getString("unlock_${bookId}_ref", null),
+            contact = prefs.getString("unlock_${bookId}_contact", null),
+        )
+    }
+
+    fun saveLocalUnlock(bookId: Int, method: String, ref: String?, contact: String?) = prefs.edit {
+        putString("unlock_${bookId}_method", method)
+        putString("unlock_${bookId}_ref", ref)
+        putString("unlock_${bookId}_contact", contact)
+        if (!contact.isNullOrBlank()) putString(KEY_CONTACT, contact)
+    }
+
+    /** Last WhatsApp/Telegram contact the user entered (prefills the next order). */
+    val lastContact: String get() = prefs.getString(KEY_CONTACT, null).orEmpty()
+
     // ── First-run flags ──────────────────────────────────────────────────────
     var onboardingDone: Boolean
         get() = prefs.getBoolean(KEY_ONBOARDING, false)
@@ -90,5 +114,6 @@ class AppPrefs(context: Context) {
         const val KEY_ONBOARDING = "onboarding_done_v1"
         const val KEY_TOUR = "tour_done_v3"
         const val KEY_SERVER_URL = "server_url"
+        const val KEY_CONTACT = "delivery_contact"
     }
 }

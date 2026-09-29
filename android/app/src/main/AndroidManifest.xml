@@ -3,6 +3,14 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Android 11+: needed to see which UPI apps can handle upi://pay -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="upi" />
+        </intent>
+    </queries>
+
     <!--
       usesCleartextTraffic is still required because the failover list includes
       plain-HTTP LAN/ADB hosts. Remove it (and those hosts) for a production build
@@ -29,6 +37,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- AdMob app ID (set in app/build.gradle.kts → manifestPlaceholders) -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="${admobAppId}" />
 
         <!-- FileProvider for sharing downloaded PDFs -->
         <provider

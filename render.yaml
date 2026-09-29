@@ -18,3 +18,9 @@ services:
         sync: false        # https://<your-service>.onrender.com
       - key: WEBHOOK_SECRET
         generateValue: true
+      - key: ADMIN_CHAT_ID
+        sync: false          # your Telegram user id (from @userinfobot)
+      - key: LARGE_FILES_ENABLED
+        value: "false"       # manual delivery of 20 MB+ books
+      - key: ADMIN_KEY
+        generateValue: true   # use it for /admin/unlocks?key=...

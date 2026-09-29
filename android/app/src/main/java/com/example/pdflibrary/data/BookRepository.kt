@@ -13,6 +13,8 @@ import com.example.pdflibrary.data.model.Favorite
 import com.example.pdflibrary.data.model.LibraryEntry
 import com.example.pdflibrary.data.model.PassSession
 import com.example.pdflibrary.data.model.ReadingProgress
+import com.example.pdflibrary.data.model.UnlockPayload
+import com.example.pdflibrary.data.model.UnlockStatus
 import com.example.pdflibrary.data.network.ApiClient
 import com.google.gson.Gson
 import kotlinx.coroutines.CancellationException
@@ -111,13 +113,17 @@ class BookRepository(context: Context, private val prefs: AppPrefs) {
         onProgress: (Float?) -> Unit,
     ): Result<File> = withContext(Dispatchers.IO) {
         val part = File(pdfDir, "book_$bookId.pdf.part")
-        val knownSize = booksDao.getBook(bookId)?.fileSize ?: 0L
-        if (knownSize > MAX_DOWNLOAD_BYTES) return@withContext Result.Error(TOO_LARGE_MESSAGE)
         try {
             val urlResponse = api.getDownloadUrl(bookId, prefs.deviceId)
             val fileUrl = urlResponse.body()?.fileUrl
             if (!urlResponse.isSuccessful || fileUrl.isNullOrBlank()) {
-                return@withContext Result.Error(errorMessage(urlResponse, "Could not get a download link"))
+                return@withContext Result.Error(
+                    when (urlResponse.code()) {
+                        402 -> PREMIUM_LOCKED_MESSAGE
+                        413 -> MANUAL_DELIVERY_MESSAGE
+                        else -> errorMessage(urlResponse, "Could not get a download link")
+                    }
+                )
             }
 
             val request = Request.Builder().url(ApiClient.resolve(fileUrl)).build()
@@ -126,7 +132,8 @@ class BookRepository(context: Context, private val prefs: AppPrefs) {
                     return@withContext Result.Error(
                         when (resp.code) {
                             410 -> "Your 20-minute pass expired. Request the book again."
-                            413 -> TOO_LARGE_MESSAGE
+                            402 -> PREMIUM_LOCKED_MESSAGE
+                            413 -> MANUAL_DELIVERY_MESSAGE
                             else -> "Download failed (HTTP ${resp.code})"
                         }
                     )
@@ -292,6 +299,49 @@ class BookRepository(context: Context, private val prefs: AppPrefs) {
         try { api.health().isSuccessful } catch (e: CancellationException) { throw e } catch (_: Exception) { false }
     }
 
+    // ── Premium ─────────────────────────────────────────────────────────────
+
+    /**
+     * Server unlock status. If the server has forgotten an unlock this device
+     * already paid for (server restart), it is re-registered automatically.
+     */
+    suspend fun getUnlockStatus(bookId: Int): Result<UnlockStatus> = withContext(Dispatchers.IO) {
+        try {
+            val resp = api.getUnlockStatus(bookId, prefs.deviceId)
+            val body = resp.body() ?: return@withContext Result.Error(errorMessage(resp, "Could not check access"))
+            val local = prefs.localUnlock(bookId)
+            if (body.premium && body.available && !body.unlocked && local != null) {
+                val restored = api.unlock(bookId, UnlockPayload(prefs.deviceId, local.method, local.ref, local.contact, restore = true))
+                restored.body()?.let { if (restored.isSuccessful) return@withContext Result.Success(it.copy(contact = it.contact ?: local.contact)) }
+            }
+            Result.Success(body)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.Error(friendlyMessage(e))
+        }
+    }
+
+    val lastContact: String get() = prefs.lastContact
+
+    /**
+     * Records an unlock locally and on the server. method = "upi" | "ad".
+     * For manual delivery the server also alerts the admin on Telegram.
+     */
+    suspend fun unlock(bookId: Int, method: String, ref: String?, contact: String?): Result<UnlockStatus> = withContext(Dispatchers.IO) {
+        prefs.saveLocalUnlock(bookId, method, ref, contact) // keep the purchase even if the call below fails
+        try {
+            val resp = api.unlock(bookId, UnlockPayload(prefs.deviceId, method, ref, contact))
+            val body = resp.body()
+            if (resp.isSuccessful && body != null) Result.Success(body.copy(contact = body.contact ?: contact))
+            else Result.Error(errorMessage(resp, "Could not unlock"))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.Error(friendlyMessage(e))
+        }
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────
 
     private fun parseError(response: Response<*>): ApiError? = runCatching {
@@ -316,9 +366,7 @@ class BookRepository(context: Context, private val prefs: AppPrefs) {
     companion object {
         private const val TAG = "BookRepository"
 
-        /** Telegram's standard Bot API only serves files up to 20 MB. */
-        const val MAX_DOWNLOAD_BYTES = 20L * 1024 * 1024
-        const val TOO_LARGE_MESSAGE =
-            "This book is larger than 20 MB. Downloads of large files aren't enabled on the server yet."
+        const val PREMIUM_LOCKED_MESSAGE = "This is a Premium book. Unlock it to download."
+        const val MANUAL_DELIVERY_MESSAGE = "This Premium book will be sent to you on WhatsApp/Telegram."
     }
 }

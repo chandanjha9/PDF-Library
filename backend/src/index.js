@@ -6,7 +6,6 @@ const app = require('./app');
 const { ready } = require('./db');
 const { registerWebhook } = require('./webhook');
 const { syncChannel } = require('./sync');
-const { startKeepAlive } = require('./keepAlive');
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
@@ -37,8 +36,4 @@ app.listen(PORT, async () => {
   } catch (err) {
     console.error('[Server] Sync error:', err.message);
   }
-
-  // Start keep-alive pinger to prevent Render free instance from sleeping
-  startKeepAlive();
 });
-

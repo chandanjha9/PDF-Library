@@ -20,6 +20,11 @@ android {
         buildConfigField("String", "BASE_URL", "\"https://pdf-library-n5i6.onrender.com/\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // AdMob — Google's official TEST IDs. Replace both with your own from
+        // admob.google.com before giving the app to real users.
+        manifestPlaceholders["admobAppId"] = "ca-app-pub-3940256099942544~3347511713"
+        buildConfigField("String", "ADMOB_REWARDED_ID", "\"ca-app-pub-3940256099942544/5224354917\"")
     }
 
     buildTypes {
@@ -95,6 +100,9 @@ dependencies {
   implementation(libs.coil.network.okhttp)
 
   // PDF Viewer — uses Android built-in PdfRenderer (no external library needed)
+
+  // AdMob rewarded ads (Premium unlock)
+  implementation(libs.play.services.ads)
 
   // DataStore
   implementation(libs.datastore.preferences)

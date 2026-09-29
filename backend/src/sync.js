@@ -70,6 +70,7 @@ function extractPdfFromMessage(msg) {
     date_added:  msg.forward_date || msg.date || Math.floor(Date.now() / 1000),
     cover_url:   null,
     author:      null,
+    thumb_file_id: (doc.thumbnail || doc.thumb || {}).file_id || null,
   };
 }
 
@@ -110,6 +111,9 @@ async function syncChannel(maxMessages = 200) {
 
     try {
       const result = insertBook(book);
+      if (result.updated) {
+        console.log(`[Sync] 🖼  Cover added: "${book.title}"`);
+      }
       if (result.inserted) {
         synced++;
         console.log(`[Sync] ✅ Indexed: "${book.title}" (File: ${book.file_id.slice(0, 15)}...)`);

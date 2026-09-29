@@ -7,6 +7,8 @@ import com.example.pdflibrary.data.model.BookRequestPayload
 import com.example.pdflibrary.data.model.BookRequestResponse
 import com.example.pdflibrary.data.model.BooksResponse
 import com.example.pdflibrary.data.model.DownloadResponse
+import com.example.pdflibrary.data.model.UnlockPayload
+import com.example.pdflibrary.data.model.UnlockStatus
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -65,6 +67,12 @@ interface BookApiService {
 
     @GET("books/session/{id}/download")
     suspend fun getSessionDownloadUrl(@Path("id") sessionId: String): Response<DownloadResponse>
+
+    @GET("books/{id}/unlock")
+    suspend fun getUnlockStatus(@Path("id") id: Int, @Query("device_id") deviceId: String): Response<UnlockStatus>
+
+    @POST("books/{id}/unlock")
+    suspend fun unlock(@Path("id") id: Int, @Body payload: UnlockPayload): Response<UnlockStatus>
 }
 
 // ── Retrofit / OkHttp Factory ────────────────────────────────────────────────

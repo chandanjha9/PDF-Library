@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.pdflibrary.data.model.Book
+import com.example.pdflibrary.data.model.isPremium
 import com.example.pdflibrary.theme.Success
 import com.example.pdflibrary.theme.SuccessDeep
 import com.example.pdflibrary.ui.common.Formatters
@@ -187,7 +188,7 @@ private fun ColumnScope.FoundContent(book: Book, message: String?, onOpenBook: (
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            BookCover(book.id, book.title, Modifier.size(width = 48.dp, height = 66.dp), coverUrl = book.coverUrl, cornerRadius = 6.dp, showTitle = false)
+            BookCover(book.id, book.title, Modifier.size(width = 48.dp, height = 66.dp), coverUrl = book.coverUrl, cornerRadius = 6.dp, showTitle = false, premium = book.isPremium)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(book.title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -232,7 +233,7 @@ private fun ColumnScope.NotFoundContent(message: String?, related: List<Book>, o
             items(related.distinctBy { it.id }, key = { it.id }) { book ->
                 Column(Modifier.width(84.dp)) {
                     Surface(onClick = { onOpenBook(book.id) }, shape = RoundedCornerShape(8.dp)) {
-                        BookCover(book.id, book.title, Modifier.size(width = 84.dp, height = 116.dp), coverUrl = book.coverUrl, cornerRadius = 8.dp)
+                        BookCover(book.id, book.title, Modifier.size(width = 84.dp, height = 116.dp), coverUrl = book.coverUrl, cornerRadius = 8.dp, premium = book.isPremium)
                     }
                 }
             }

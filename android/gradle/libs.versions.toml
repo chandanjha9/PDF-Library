@@ -21,6 +21,7 @@ coil = "3.1.0"
 
 kotlinxSerializationJson = "1.7.3"
 datastore = "1.1.4"
+playServicesAds = "23.6.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
@@ -61,6 +62,9 @@ coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version
 datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
 # Kotlinx serialization JSON
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
+
+# AdMob (rewarded ads)
+play-services-ads = { module = "com.google.android.gms:play-services-ads", version.ref = "playServicesAds" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "androidGradlePlugin" }

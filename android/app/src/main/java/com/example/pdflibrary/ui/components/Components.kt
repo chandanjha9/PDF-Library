@@ -7,8 +7,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.WorkspacePremium
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -24,6 +26,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.example.pdflibrary.data.network.ApiClient
+import com.example.pdflibrary.theme.Amber
+import com.example.pdflibrary.theme.OnAmber
 import com.example.pdflibrary.theme.TextLow
 import com.example.pdflibrary.theme.coverGradientFor
 import com.example.pdflibrary.ui.common.Formatters
@@ -41,6 +46,7 @@ fun BookCover(
     coverUrl: String? = null,
     cornerRadius: Dp = 10.dp,
     showTitle: Boolean = true,
+    premium: Boolean = false,
 ) {
     val (top, bottom) = coverGradientFor(bookId)
     val shape = RoundedCornerShape(cornerRadius)
@@ -90,13 +96,49 @@ fun BookCover(
                 modifier = Modifier.align(Alignment.Center),
             )
         }
-        if (!coverUrl.isNullOrBlank() && coverUrl.startsWith("http")) {
+        // Real cover photo (Telegram's first-page thumbnail, served by the backend
+        // at /books/{id}/cover). Drawn over the generated cover, so if it's
+        // missing or fails to load the generated one simply stays visible.
+        val model = remember(coverUrl) { resolveCoverUrl(coverUrl) }
+        if (model != null) {
             AsyncImage(
-                model = coverUrl,
+                model = model,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.matchParentSize(),
             )
+        }
+        if (premium) {
+            PremiumBadge(
+                compact = !showTitle,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp),
+            )
+        }
+    }
+}
+
+private fun resolveCoverUrl(url: String?): String? = when {
+    url.isNullOrBlank() -> null
+    url.startsWith("http://") || url.startsWith("https://") -> url
+    url.startsWith("/") -> runCatching { ApiClient.resolve(url).toString() }.getOrNull()
+    else -> null
+}
+
+/** Small amber "Premium" tag (crown only when space is tight). */
+@Composable
+fun PremiumBadge(modifier: Modifier = Modifier, compact: Boolean = false) {
+    Surface(shape = RoundedCornerShape(6.dp), color = Amber, contentColor = OnAmber, modifier = modifier) {
+        Row(
+            modifier = Modifier.padding(horizontal = if (compact) 3.dp else 6.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Outlined.WorkspacePremium, contentDescription = "Premium", modifier = Modifier.size(12.dp))
+            if (!compact) {
+                Spacer(Modifier.width(3.dp))
+                Text("PREMIUM", fontSize = 9.sp, fontWeight = FontWeight.Bold, lineHeight = 10.sp)
+            }
         }
     }
 }

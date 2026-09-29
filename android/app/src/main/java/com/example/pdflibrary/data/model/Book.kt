@@ -21,6 +21,36 @@ data class Book(
     val author: String?,
 )
 
+/** Files above this size are Premium (unlock with ₹10 UPI or a rewarded ad). Mirrors the backend. */
+const val PREMIUM_MIN_BYTES: Long = 20L * 1024 * 1024
+
+val Book.isPremium: Boolean get() = fileSize > PREMIUM_MIN_BYTES
+
+/** GET /books/{id}/unlock */
+data class UnlockStatus(
+    val premium: Boolean = false,
+    val unlocked: Boolean = false,
+    val available: Boolean = true,
+    /** "download" = app downloads after unlock; "manual" = admin sends the book on WhatsApp/Telegram. */
+    val delivery: String? = null,
+    /** Manual orders: "pending" | "sent". */
+    val status: String? = null,
+    val contact: String? = null,
+) {
+    val isManual: Boolean get() = delivery == "manual"
+}
+
+/** POST /books/{id}/unlock */
+data class UnlockPayload(
+    @SerializedName("device_id") val deviceId: String,
+    val method: String, // "upi" | "ad"
+    val ref: String?,
+    /** WhatsApp number / Telegram username for manual delivery. */
+    val contact: String?,
+    /** true when re-registering an existing unlock after a server restart (no new admin alert). */
+    val restore: Boolean = false,
+)
+
 /** Response envelope for search and list endpoints */
 data class BooksResponse(
     val books: List<Book>,
