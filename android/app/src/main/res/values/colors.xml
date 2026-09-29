@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mirrors theme/Color.kt — used before Compose draws (window, splash, launcher). -->
+    <color name="ink_950">#0E1320</color>
+    <color name="ink_900">#161C2B</color>
+    <color name="logo_sky">#8BA6D3</color>
+</resources>

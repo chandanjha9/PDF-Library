@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Dark window theme so there is no white flash before Compose draws,
+      and so the IME / system dialogs match the app.
+    -->
+    <style name="Theme.PDFLibrary" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/ink_950</item>
+        <item name="android:colorBackground">@color/ink_950</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:colorAccent">@color/logo_sky</item>
+    </style>
+</resources>

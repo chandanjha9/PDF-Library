@@ -1,0 +1,20 @@
+# Render Blueprint — free web service for the PDF Library backend.
+# Render dashboard → New → Blueprint → select this repo. Then fill the secret env vars.
+services:
+  - type: web
+    name: pdf-library-backend
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: BOT_TOKEN
+        sync: false        # enter the NEW (rotated) token in the dashboard
+      - key: CHANNEL_ID
+        sync: false
+      - key: WEBHOOK_URL
+        sync: false        # https://<your-service>.onrender.com
+      - key: WEBHOOK_SECRET
+        generateValue: true
