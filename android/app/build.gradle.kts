@@ -17,7 +17,7 @@ android {
 
         // Primary backend URL (tried first). LAN / ADB fallbacks live in
         // data/network/BookApiService.kt → ApiClient.candidateHosts.
-        buildConfigField("String", "BASE_URL", "\"https://squid-stubble-finally.ngrok-free.dev/\"")
+        buildConfigField("String", "BASE_URL", "\"https://pdf-library-n5i6.onrender.com/\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

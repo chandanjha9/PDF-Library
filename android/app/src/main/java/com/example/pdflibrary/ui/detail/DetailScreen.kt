@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.pdflibrary.data.BookRepository
 import com.example.pdflibrary.data.model.Book
 import com.example.pdflibrary.theme.Amber
 import com.example.pdflibrary.theme.coverGradientFor
@@ -165,7 +166,18 @@ private fun DetailContent(
             }
 
             Spacer(Modifier.height(24.dp))
-            DownloadSection(state.downloadState, onDownload, onCancel, onOpenPdf)
+            if (book.fileSize > BookRepository.MAX_DOWNLOAD_BYTES && state.downloadState !is DownloadState.Done) {
+                // Known in advance: don't offer a button that is guaranteed to fail.
+                Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.tertiaryContainer, modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text(BookRepository.TOO_LARGE_MESSAGE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                    }
+                }
+            } else {
+                DownloadSection(state.downloadState, onDownload, onCancel, onOpenPdf)
+            }
 
             if (!book.description.isNullOrBlank()) {
                 Spacer(Modifier.height(28.dp))

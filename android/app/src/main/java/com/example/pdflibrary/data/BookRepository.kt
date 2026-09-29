@@ -111,6 +111,8 @@ class BookRepository(context: Context, private val prefs: AppPrefs) {
         onProgress: (Float?) -> Unit,
     ): Result<File> = withContext(Dispatchers.IO) {
         val part = File(pdfDir, "book_$bookId.pdf.part")
+        val knownSize = booksDao.getBook(bookId)?.fileSize ?: 0L
+        if (knownSize > MAX_DOWNLOAD_BYTES) return@withContext Result.Error(TOO_LARGE_MESSAGE)
         try {
             val urlResponse = api.getDownloadUrl(bookId, prefs.deviceId)
             val fileUrl = urlResponse.body()?.fileUrl
@@ -122,8 +124,11 @@ class BookRepository(context: Context, private val prefs: AppPrefs) {
             ApiClient.httpClient.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) {
                     return@withContext Result.Error(
-                        if (resp.code == 410) "Your 20-minute pass expired. Request the book again."
-                        else "Download failed (HTTP ${resp.code})"
+                        when (resp.code) {
+                            410 -> "Your 20-minute pass expired. Request the book again."
+                            413 -> TOO_LARGE_MESSAGE
+                            else -> "Download failed (HTTP ${resp.code})"
+                        }
                     )
                 }
                 val body = resp.body ?: return@withContext Result.Error("Empty response from server")
@@ -308,5 +313,12 @@ class BookRepository(context: Context, private val prefs: AppPrefs) {
         else -> e.message ?: "Something went wrong"
     }
 
-    private companion object { const val TAG = "BookRepository" }
+    companion object {
+        private const val TAG = "BookRepository"
+
+        /** Telegram's standard Bot API only serves files up to 20 MB. */
+        const val MAX_DOWNLOAD_BYTES = 20L * 1024 * 1024
+        const val TOO_LARGE_MESSAGE =
+            "This book is larger than 20 MB. Downloads of large files aren't enabled on the server yet."
+    }
 }

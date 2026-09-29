@@ -78,7 +78,10 @@ async function resolveFileUrl(file_id) {
   const res = await fetch(`${TELEGRAM_API}/getFile?file_id=${encodeURIComponent(file_id)}`);
   const data = await res.json();
   if (!data.ok) {
-    throw new Error(`getFile failed: ${data.description}`);
+    const err = new Error(`getFile failed: ${data.description}`);
+    // Standard Bot API refuses files > 20 MB ("Bad Request: file is too big").
+    if (/too big/i.test(data.description || '')) err.code = 'FILE_TOO_BIG';
+    throw err;
   }
   const file_path = data.result.file_path;
   const url = `${TELEGRAM_API_BASE}/file/bot${BOT_TOKEN}/${file_path}`;

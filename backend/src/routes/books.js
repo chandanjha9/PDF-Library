@@ -190,6 +190,12 @@ router.get('/session/:id/file', async (req, res) => {
     await streamFile(session.book.file_id, res, session.book.title || 'book');
   } catch (err) {
     console.error('[/books/session/:id/file]', err.message);
+    if (err.code === 'FILE_TOO_BIG' && !res.headersSent) {
+      return res.status(413).json({
+        error:   'File too large',
+        message: 'This book is larger than 20 MB, which Telegram does not allow bots to download. It can be enabled by running a local Telegram Bot API server.',
+      });
+    }
     if (!res.headersSent) {
       return res.status(502).json({ error: 'Could not fetch the file from storage. Please try again.' });
     }
